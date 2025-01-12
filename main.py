@@ -16,6 +16,10 @@ parser.add_argument("-t", "--target",
 parser.add_argument("--no_denoise", action = "store_true",
                     help="Wether or not to apply NL means denoising. Default is True. Adding this parameter disables the denoising")
 
+parser.add_argument("-r", "--recursive", action = "store_false",
+                    help="Wether the folder should be scanned recursively. Only works if source is a folder.")
+
+
 def has_valid_fileending(path: str, target_ending = ".nef") -> bool:
     ending = path[-4:]
     if ending.lower() == target_ending:
@@ -33,6 +37,7 @@ def replace_ending(path: str, new_ending="jpg") -> str:
 if __name__ == "__main__":
     args = parser.parse_args()
     source: str = os.path.normpath(args.source)
+    recurse: bool = args.recursive
     target: str = args.target
     denoise: bool = args.no_denoise
 
@@ -44,12 +49,24 @@ if __name__ == "__main__":
     # Check input data
     input_filepaths: list[str] = []
     if os.path.isdir(source):
-        input_filepaths = [os.path.join(source, x) for x in os.listdir(source) if has_valid_fileending(x)]
+        if recurse:
+            subfolders: list[str] = []
+            for folder, subfolder, files in os.walk(source):
+                for file in files:
+                    if has_valid_fileending(file):
+                        input_filepaths.append(os.path.join(source, folder, file))
+                        subfolders.append(folder)
+            pass
+        else:
+            input_filepaths = [os.path.join(source, x) for x in os.listdir(source) if has_valid_fileending(x)]
+        
         if len(input_filepaths) == 0:
             print(f"Error: The given folder '{source}' contains no valid input images")
             exit(1)
+
     elif has_valid_fileending(source):
         input_filepaths = [os.path.normpath(source)]
+
     else:
         print(f"Error: The given path '{source}' is neither a valid folder nor file")
         exit(1)
@@ -64,7 +81,18 @@ if __name__ == "__main__":
         output_filepaths = [target]
 
     elif os.path.isdir(target):
-        output_filepaths = [os.path.join(target, replace_ending(os.path.basename(x), "jpg")) for x in input_filepaths]
+        if recurse:
+            output_filepaths = []
+            for i in range(len(input_filepaths)):
+                input_filepath = input_filepaths[i]
+                subfolder_name = subfolders[i]
+                if not os.path.exists(os.path.join(target, subfolder_name)):
+                    os.mkdir(os.path.join(target, subfolder_name))
+
+                output_filepaths.append(os.path.join(target, subfolder_name, replace_ending(os.path.basename(input_filepath), "jpg")))
+                
+        else:
+            output_filepaths = [os.path.join(target, replace_ending(os.path.basename(x), "jpg")) for x in input_filepaths]
     
     else:
         print("Error: Fileending of target is invalid or folder doesn't exist.")
@@ -84,7 +112,6 @@ if __name__ == "__main__":
 
             raw_image = rawpy_image.postprocess(output_bps=8, fbdd_noise_reduction = rawpy.FBDDNoiseReductionMode(1), use_auto_wb=True,
                                                 auto_bright_thr=0.0001, highlight_mode = rawpy.HighlightMode.Clip) # Test highlight modes
-            print(raw_image.shape)
 
             out_image = cv2.cvtColor(raw_image, cv2.COLOR_RGB2BGR)
             if denoise:
